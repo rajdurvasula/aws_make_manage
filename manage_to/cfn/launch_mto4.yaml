@@ -36,7 +36,7 @@ Mappings:
 Conditions:
   LaunchSuse: !Equals
     - !Ref OSType
-    - suse
+    - sles
   LaunchRhel: !Equals
     - !Ref OSType
     - rhel
