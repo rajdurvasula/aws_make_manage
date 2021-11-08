@@ -69,10 +69,18 @@ def add_authorized_key(remote_host, sudo_user, remote_user):
         print(stderr.readlines())
 
 
-def get_keys(priv_key_name, pub_key_name):
+def get_keys(sudo_user_key_name, priv_key_name, pub_key_name):
     aws_region = get_region()
     sm_client = boto3.client('secretsmanager', region_name=aws_region)
     try:
+        response =sm_client.get_secret_value(SecretId=sudo_user_key_name)
+        sudo_key_content = response['SecretString']
+        with open(mfrom_priv_key_file, 'w') as sudoer_key_file:
+            sudoer_key_file.write(sudo_key_content)
+        sudoer_key_file.close()
+        os.chmod(sudoer_key_file, stat.S_IRUSR)
+        print('Sudo user key downloaded. File = %s' % mfrom_priv_key_file)
+
         response = sm_client.get_secret_value(SecretId=priv_key_name)
         priv_key_content = response['SecretString']
         with open(ssh_priv_key_file, 'w') as priv_key_file:
@@ -121,19 +129,20 @@ def get_region():
     return get_response.text
 
 def usage():
-    print('usage: makemanage_linux.py priv_key_name pub_key_name remote_host sudo_user remote_user sudoer|no_sudoer')
+    print('usage: makemanage_linux.py priv_key_name pub_key_name remote_host sudo_user sudo_user_key remote_user sudoer|no_sudoer')
     sys.exit(0)
 
 def main():
-    if (len(sys.argv) != 7):
+    if (len(sys.argv) != 8):
         usage()
     priv_key_name = sys.argv[1]
     pub_key_name = sys.argv[2]
     remote_host = sys.argv[3]
     sudo_user = sys.argv[4]
-    remote_user = sys.argv[5]
-    allow_sudo = "sudoer" == sys.argv[6]
-    get_keys(priv_key_name, pub_key_name)
+    sudo_user_key_name = sys.argv[5]
+    remote_user = sys.argv[6]
+    allow_sudo = "sudoer" == sys.argv[7]
+    get_keys(sudo_user_key_name, priv_key_name, pub_key_name)
     create_user(remote_host, sudo_user, remote_user, allow_sudo)
     add_authorized_key(remote_host, sudo_user, remote_user)
     install_ssm_agent()
