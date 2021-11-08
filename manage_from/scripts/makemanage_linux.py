@@ -115,7 +115,7 @@ def install_ssm_agent(remote_host, sudo_user):
     command = "cat /etc/os-release | grep '^ID=' | cut -d'=' -f2 | sed -r 's#\"##g'"
     stdin,stdout,stderr = ssh_client.exec_command(command)
     if (stdout.channel.recv_exit_status() == 0):
-        os_name = stdout.readlines()[0]
+        os_name = stdout.readlines()[0].strip()
         if os_name == "sles":
             install_ssm_agent_sles(remote_host, sudo_user)
         elif os_name == "rhel":
