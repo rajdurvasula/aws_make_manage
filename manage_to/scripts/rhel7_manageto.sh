@@ -6,8 +6,7 @@ setup_python() {
 
 yum -y update
 yum -y install git
-python=`which python3`
-if [ "${python}" == "/usr/bin/python3" ]; then
+if [ -f /usr/bin/python3 ]; then
   setup_python
 else
   yum -y install python3 python3-devel

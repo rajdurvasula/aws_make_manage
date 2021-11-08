@@ -1,6 +1,13 @@
 AWSTemplateFormatVersion: "2010-09-09"
 Description: Launch Manage to instance
 Parameters:
+  OSType:
+    Type: String
+    Description: Type of OS
+    Default: rhel
+    AllowedValues:
+      - rhel
+      - sles
   KeyPairParam:
     Type: AWS::EC2::KeyPair::KeyName
     Description: Select KeyPair
@@ -15,10 +22,24 @@ Parameters:
     Type: AWS::EC2::SecurityGroup::Id
     Description: Select Security Group
     Default: sg-046330923b70dc755
+  S3Bucket:
+    Type: String
+    Description: S3 Bucket Name
+    Default: 'rd-kyndryl-bucket1'
 Mappings:
   rhel7:
     'ap-northeast-1':
-      amiId: ami-0be4c0b05bbeb2afd
+      amiId: 'ami-0be4c0b05bbeb2afd'
+  suse12:
+    'ap-northeast-1':
+      amiId: 'ami-04882bf72ff913721'
+Conditions:
+  LaunchSuse: !Equals
+    - !Ref OSType
+    - suse
+  LaunchRhel: !Equals
+    - !Ref OSType
+    - rhel
 Resources:
   MtoRole:
     Type: AWS::IAM::Role
@@ -36,6 +57,26 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
         - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+      Policies:
+        - PolicyName: !Sub '${AWS::Region}-S3-Write-Min'
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                Resource:
+                  - 'arn:aws:s3:::${S3Bucket}/*'
+        - PolicyName: !Sub '${AWS::Region}-CW-Min'
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogStream'
+                  - 'logs:CreateLogGroup'
+                Resource:
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
   MtoInstanceProfile:
     Type: AWS::IAM::InstanceProfile
     DependsOn: MtoRole
@@ -45,6 +86,7 @@ Resources:
         - !Ref MtoRole
   RhelInstance:
     Type: AWS::EC2::Instance
+    Condition: LaunchRhel
     Properties:
       ImageId: !FindInMap [ rhel7, !Ref 'AWS::Region', amiId ]
       InstanceType: t2.micro
@@ -75,3 +117,28 @@ Resources:
             echo "alias python=/usr/bin/python3" >> /etc/bashrc
             alias python=/usr/bin/python3
           fi
+  SuseInstance:
+    Type: AWS::EC2::Instance
+    Condition: LaunchSuse
+    Properties:
+      ImageId: !FindInMap [ suse12, !Ref 'AWS::Region', amiId ]
+      InstanceType: t2.micro
+      IamInstanceProfile: !Ref MtoInstanceProfile
+      KeyName: !Ref KeyPairParam
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref SgParam
+          SubnetId: !Ref SubnetParam
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-suse-ep1'
+        - Key: Owner
+          Value: Rajasekhar.durvasula
+        - Key: Project
+          Value: MSP
+      UserData:
+        Fn::Base64: !Sub |
+          sudo zypper ref
+          sudo zypper update -y
