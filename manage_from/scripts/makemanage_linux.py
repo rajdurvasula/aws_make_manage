@@ -107,7 +107,7 @@ def read_file(file_name):
         file_content = my_file.readlines()
     return file_content[0]
 
-def install_ssm_agent():
+def install_ssm_agent(remote_host, sudo_user):
     # get AWS region from Manage_from instance
     aws_region = get_region()
     command = "sudo yum install -y https://s3.%s.amazonaws.com/amazon-ssm-%s/latest/linux_amd64/amazon-ssm-agent.rpm" % (aws_region, aws_region)
@@ -145,7 +145,7 @@ def main():
     get_keys(sudo_user_key_name, priv_key_name, pub_key_name)
     create_user(remote_host, sudo_user, remote_user, allow_sudo)
     add_authorized_key(remote_host, sudo_user, remote_user)
-    install_ssm_agent()
+    install_ssm_agent(remote_host, sudo_user)
 
 if __name__ == '__main__':
     main()
