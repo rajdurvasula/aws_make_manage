@@ -4,15 +4,15 @@ Parameters:
   GitToken:
     Type: String
     Description: Git Access Token
-    Default: 67f0072c650f0c4bed2d5efbd0f4fc1c0efca8d9
+    Default: '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'
   GitDomain:
     Type: String
     Description: Git Domain
-    Default: 'github.kyndryl.net'
+    Default: 'github.com'
   GitUser:
     Type: String
     Description: Git Domain User
-    Default: rdurvas1
+    Default: rajdurvasula
   GitRepo:
     Type: String
     Description: Git Repo Name
