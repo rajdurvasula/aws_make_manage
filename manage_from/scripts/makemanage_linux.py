@@ -100,7 +100,7 @@ def read_file(file_name):
 
 def install_ssm_agent():
     # get AWS region from Manage_from instance
-    get_response = requests.get(URL='http://169.254.169.254/latest/meta-data/placement/region')
+    get_response = requests.get(url='http://169.254.169.254/latest/meta-data/placement/region')
     aws_region = get_response.text
     command = "sudo yum install -y https://s3.%s.amazonaws.com/amazon-ssm-%s/latest/linux_amd64/amazon-ssm-agent.rpm" % aws_region
     ssh_client = paramiko.SSHClient()
