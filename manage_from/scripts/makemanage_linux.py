@@ -110,7 +110,7 @@ def read_file(file_name):
 def install_ssm_agent():
     # get AWS region from Manage_from instance
     aws_region = get_region()
-    command = "sudo yum install -y https://s3.%s.amazonaws.com/amazon-ssm-%s/latest/linux_amd64/amazon-ssm-agent.rpm" % aws_region
+    command = "sudo yum install -y https://s3.%s.amazonaws.com/amazon-ssm-%s/latest/linux_amd64/amazon-ssm-agent.rpm" % (aws_region, aws_region)
     ssh_client = paramiko.SSHClient()
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh_client.connect(hostname=remote_host,username=sudo_user,key_filename=mfrom_priv_key_file)
