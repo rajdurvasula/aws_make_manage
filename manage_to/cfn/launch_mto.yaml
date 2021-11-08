@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Launch Manage to instance
+Parameters:
+  KeyPairParam:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Select KeyPair
+    Default: kyndryl_rd_tok
+  VPCParam:
+    Type: AWS::EC2::VPC::Id
+    Description: Select VPC
+  SubnetParam:
+    Type: AWS::EC2::Subnet::Id
+    Description: Select Subnet
+  SgParam:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Select Security Group
+    Default: sg-046330923b70dc755
+Mappings:
+  rhel7:
+    'ap-northeast-1':
+      amiId: ami-0be4c0b05bbeb2afd
+Resources:
+  MtoRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: '/'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+  MtoInstanceProfile:
+    Type: AWS::IAM::InstanceProfile
+    DependsOn: MtoRole
+    Properties:
+      InstanceProfileName: !Sub '${AWS::StackName}-InstanceProfile'
+      Roles:
+        - !Ref MtoRole
+  RhelInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [ rhel7, !Ref 'AWS::Region', amiId ]
+      InstanceType: t2.micro
+      IamInstanceProfile: !Ref MtoInstanceProfile
+      KeyName: !Ref KeyPairParam
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref SgParam
+          SubnetId: !Ref SubnetParam
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-rhel-ep1'
+        - Key: Owner
+          Value: Rajasekhar.durvasula
+        - Key: Project
+          Value: MSP
+      UserData:
+        Fn::Base64: !Sub |
+          yum -y update
+          yum -y install git
+          python=`which python3`
+          if [ "${python}" == "/usr/bin/python3" ]; then
+            echo "alias python=/usr/bin/python3" >> /etc/bashrc
+            alias python=/usr/bin/python3
+          else
+            yum -y install python3 python3-devel
+            echo "alias python=/usr/bin/python3" >> /etc/bashrc
+            alias python=/usr/bin/python3
+          fi
+          yum install -y https://s3.${AWS::Region}.amazonaws.com/amazon-ssm-${AWS::Region}/latest/linux_amd64/amazon-ssm-agent.rpm
+          systemctl enable amazon-ssm-agent
