@@ -70,7 +70,8 @@ def add_authorized_key(remote_host, sudo_user, remote_user):
 
 
 def get_keys(priv_key_name, pub_key_name):
-    sm_client = boto3.client('secretsmanager')
+    aws_region = get_region()
+    sm_client = boto3.client('secretsmanager', region_name=aws_region)
     try:
         response = sm_client.get_secret_value(SecretId=priv_key_name)
         priv_key_content = response['SecretString']
@@ -100,8 +101,7 @@ def read_file(file_name):
 
 def install_ssm_agent():
     # get AWS region from Manage_from instance
-    get_response = requests.get(url='http://169.254.169.254/latest/meta-data/placement/region')
-    aws_region = get_response.text
+    aws_region = get_region()
     command = "sudo yum install -y https://s3.%s.amazonaws.com/amazon-ssm-%s/latest/linux_amd64/amazon-ssm-agent.rpm" % aws_region
     ssh_client = paramiko.SSHClient()
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
@@ -115,6 +115,10 @@ def install_ssm_agent():
     else:
         print('SSM Agent installation failed !')
         print(stderr.readlines())
+
+def get_region():
+    get_response = requests.get(url='http://169.254.169.254/latest/meta-data/placement/region')
+    return get_response.text
 
 def usage():
     print('usage: makemanage_linux.py priv_key_name pub_key_name remote_host sudo_user remote_user sudoer|no_sudoer')
