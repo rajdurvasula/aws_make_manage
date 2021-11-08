@@ -1,0 +1,105 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Setup Manage from SSM documents
+Parameters:
+  GitToken:
+    Type: String
+    Description: Git Access Token
+    Default: 67f0072c650f0c4bed2d5efbd0f4fc1c0efca8d9
+  GitDomain:
+    Type: String
+    Description: Git Domain
+    Default: 'github.kyndryl.net'
+  GitUser:
+    Type: String
+    Description: Git Domain User
+    Default: rdurvas1
+  GitRepo:
+    Type: String
+    Description: Git Repo Name
+    Default: 'aws_make_manage.git'
+  SudoUser:
+    Type: String
+    Description: SUDO user
+    Default: 'ec2-user'
+  SudoUserKey:
+    Type: String
+    Description: SUDO user key
+  RemoteHost:
+    Type: String
+    Description: Remote Host
+  RemoteUser:
+    Type: String
+    Description: Remote User
+    Default: ansible
+  SSHPrivateKeySecret:
+    Type: String
+    Description: Secret Key for SSH Private Key
+    Default: 'kyndryl/mcms/dev/ssh_priv_key3'
+  SSHPublicKeySecret:
+    Type: String
+    Description: Secret Key for SSH Public Key
+    Default: 'kyndryl/mcms/dev/ssh_pub_key_entry3'
+Resources:
+  PrepareManageToDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Name: !Sub '${AWS::StackName}-PrepareMTo'
+      Content:
+        schemaVersion: '2.2'
+        description: 'Prepare Manage To Instance for Make-Manage'
+        parameters:
+          gitToken:
+            type: String
+            description: Git Access Token
+            default: !Ref GitToken
+          gitDomain:
+            type: String
+            description: Git Domain
+            default: !Ref GitDomain
+          gitUser:
+            type: String
+            description: Git Domain User
+            default: !Ref GitUser
+          gitRepo:
+            type: String
+            description: Git Repo Name
+            default: !Ref GitRepo
+          sudoUser:
+            type: String
+            description: SUDO user
+            default: !Ref SudoUser
+          sudoUserKey:
+            type: String
+            description: SUDO user key
+            default: !Ref SudoUserKey
+          remoteHost:
+            type: String
+            description: Remote Host
+            default: !Ref RemoteHost
+          remoteUser:
+            type: String
+            description: Remote User
+            default: !Ref RemoteUser
+          sshPrivKey:
+            type: String
+            description: Secret key for SSH private key
+            default: !Ref SSHPrivateKeySecret
+          sshPubKey:
+            type: String
+            description: Secret key for SSH public key
+            default: !Ref SSHPublicKeySecret
+        mainSteps:
+          - action: aws:runShellScript
+            name: prepareManageToInstance
+            inputs:
+              runcommand:
+                - "#!/bin/bash -xe"
+                - "mkdir -p /tmp/mfrom"
+                - "git clone https://{{ gitUser }}:{{ gitToken }}@{{ gitDomain }}/{{ gitUser }}/{{ gitRepo }} /tmp/mfrom"
+                - "echo \"{{ sudoUserKey }}\" > /tmp/mfrom/kyndryl_rd_tok.pem"
+                - "cd /tmp/mfrom"
+                - "/usr/bin/python3 manage_from/scripts/makemanage_linux.py {{ sshPrivKey }} {{ sshPubKey }} {{ remoteHost }} {{ sudoUser }} {{ remoteUser }} sudoer"
+
+
+  

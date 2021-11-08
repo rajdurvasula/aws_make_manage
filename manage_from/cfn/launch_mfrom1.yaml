@@ -1,5 +1,5 @@
 AWSTemplateFormatVersion: "2010-09-09"
-Description: Launch Manage to instance
+Description: Launch Manage from instance
 Parameters:
   KeyPairParam:
     Type: AWS::EC2::KeyPair::KeyName
@@ -14,13 +14,13 @@ Parameters:
   SgParam:
     Type: AWS::EC2::SecurityGroup::Id
     Description: Select Security Group
-    Default: sg-046330923b70dc755
+    Default: sg-06154bd141ef09e70
 Mappings:
-  rhel7:
+  amzlin2:
     'ap-northeast-1':
-      amiId: ami-0be4c0b05bbeb2afd
+      amiId: ami-02d36247c5bc58c23
 Resources:
-  MtoRole:
+  MfromRole:
     Type: AWS::IAM::Role
     Properties:
       AssumeRolePolicyDocument:
@@ -36,19 +36,29 @@ Resources:
       ManagedPolicyArns:
         - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
         - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
-  MtoInstanceProfile:
+      Policies:
+        - PolicyName: !Sub '${AWS::StackName}-SM-Read'
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'secretsmanager:GetSecretValue'
+                Resource:
+                  - !Sub 'arn:aws:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:*'
+  MfromInstanceProfile:
     Type: AWS::IAM::InstanceProfile
-    DependsOn: MtoRole
+    DependsOn: MfromRole
     Properties:
       InstanceProfileName: !Sub '${AWS::StackName}-InstanceProfile'
       Roles:
-        - !Ref MtoRole
-  RhelInstance:
+        - !Ref MfromRole
+  MfromInstance:
     Type: AWS::EC2::Instance
     Properties:
-      ImageId: !FindInMap [ rhel7, !Ref 'AWS::Region', amiId ]
+      ImageId: !FindInMap [ amzlin2, !Ref 'AWS::Region', amiId ]
       InstanceType: t2.micro
-      IamInstanceProfile: !Ref MtoInstanceProfile
+      IamInstanceProfile: !Ref MfromInstanceProfile
       KeyName: !Ref KeyPairParam
       NetworkInterfaces:
         - AssociatePublicIpAddress: true
@@ -58,20 +68,25 @@ Resources:
           SubnetId: !Ref SubnetParam
       Tags:
         - Key: Name
-          Value: !Sub '${AWS::StackName}-rhel-ep1'
+          Value: !Sub '${AWS::StackName}-ep1'
         - Key: Owner
           Value: Rajasekhar.durvasula
         - Key: Project
           Value: MSP
       UserData:
         Fn::Base64: !Sub |
+          #!/bin/bash -xe
           yum -y update
           yum -y install git
           if [ -f /usr/bin/python3 ]; then
             echo "alias python=/usr/bin/python3" >> /etc/bashrc
-            alias python=/usr/bin/python3
           else
             yum -y install python3 python3-devel
             echo "alias python=/usr/bin/python3" >> /etc/bashrc
-            alias python=/usr/bin/python3
           fi
+          /usr/bin/python3 -m pip install --upgrade --user pip paramiko boto3
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install
+          echo "PATH=\$PATH:/usr/local/bin" >> /etc/bashrc
+          echo "export PATH" >> /etc/bashrc
