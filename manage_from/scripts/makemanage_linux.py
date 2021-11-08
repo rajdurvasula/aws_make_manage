@@ -78,7 +78,7 @@ def get_keys(sudo_user_key_name, priv_key_name, pub_key_name):
         with open(mfrom_priv_key_file, 'w') as sudoer_key_file:
             sudoer_key_file.write(sudo_key_content)
         sudoer_key_file.close()
-        os.chmod(sudoer_key_file, stat.S_IRUSR)
+        os.chmod(mfrom_priv_key_file, stat.S_IRUSR)
         print('Sudo user key downloaded. File = %s' % mfrom_priv_key_file)
 
         response = sm_client.get_secret_value(SecretId=priv_key_name)
