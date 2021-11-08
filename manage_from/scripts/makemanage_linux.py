@@ -120,29 +120,56 @@ def install_ssm_agent(remote_host, sudo_user):
             install_ssm_agent_sles(remote_host, sudo_user)
         elif os_name == "rhel":
             install_ssm_agent_rhel(remote_host, sudo_user)
+        elif os_name == "ubuntu":
+            install_ssm_agent_ubuntu(remote_host, sudo_user)
 
-def install_ssm_agent_sles(remote_host, sudo_user):
+def install_ssm_agent_ubuntu(remote_host, sudo_user):
     # get AWS region from Manage_from instance
     aws_region = get_region()
-    command = "wget https://s3.%s.amazonaws.com/amazon-ssm-%s/latest/linux_amd64/amazon-ssm-agent.rpm" % (aws_region, aws_region)
     ssh_client = paramiko.SSHClient()
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh_client.connect(hostname=remote_host,username=sudo_user,key_filename=mfrom_priv_key_file)
     print('Connected to remote_host: %s' % remote_host)
+    command = "sudo snap services amazon-ssm-agent | awk 'NR==2{ print $3}'"
     stdin,stdout,stderr = ssh_client.exec_command(command)
-    if (stdout.channel.recv_exit_status() == 0):
-        command = "sudo rpm --install amazon-ssm-agent.rpm"
+    if (stdout.channel.recv_exit_status() != 0):
+        command = "sudo snap install amazon-ssm-agent --classic"
+        stdin,stdout,stderr = ssh_client.exec_command(command)
+        if (stdout.channel.recv_exit_status() != 0):
+            print('SSM Agent is installed')
+            command = "sudo snap start amazon-ssm-agent"
+            stdin,stdout,stderr = ssh_client.exec_command(command)
+            if (stdout.channel.recv_exit_status() != 0):
+                print('SSM Agent is started')
+        else:
+            print('SSM Agent installation failed !')
+            print(stderr.readlines())
+
+def install_ssm_agent_sles(remote_host, sudo_user):
+    # get AWS region from Manage_from instance
+    aws_region = get_region()
+    ssh_client = paramiko.SSHClient()
+    ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    ssh_client.connect(hostname=remote_host,username=sudo_user,key_filename=mfrom_priv_key_file)
+    print('Connected to remote_host: %s' % remote_host)
+    command = "sudo systemctl is-active amazon-ssm-agent"
+    stdin,stdout,stderr = ssh_client.exec_command(command)
+    if (stdout.channel.recv_exit_status() != 0):
+        command = "wget https://s3.%s.amazonaws.com/amazon-ssm-%s/latest/linux_amd64/amazon-ssm-agent.rpm" % (aws_region, aws_region)
         stdin,stdout,stderr = ssh_client.exec_command(command)
         if (stdout.channel.recv_exit_status() == 0):
-            print('SSM Agent is installed')
-            command = "sudo systemctl enable amazon-ssm-agent"
+            command = "sudo rpm --install amazon-ssm-agent.rpm"
             stdin,stdout,stderr = ssh_client.exec_command(command)
             if (stdout.channel.recv_exit_status() == 0):
-                print('SSM Agent is enabled')
-            command = "sudo systemctl start amazon-ssm-agent"
-            stdin,stdout,stderr = ssh_client.exec_command(command)
-            if (stdout.channel.recv_exit_status() == 0):
-                print('SSM Agent is started')
+                print('SSM Agent is installed')
+                command = "sudo systemctl enable amazon-ssm-agent"
+                stdin,stdout,stderr = ssh_client.exec_command(command)
+                if (stdout.channel.recv_exit_status() == 0):
+                    print('SSM Agent is enabled')
+                    command = "sudo systemctl start amazon-ssm-agent"
+                    stdin,stdout,stderr = ssh_client.exec_command(command)
+                    if (stdout.channel.recv_exit_status() == 0):
+                        print('SSM Agent is started')
         else:
             print('SSM Agent installation failed !')
             print(stderr.readlines())
@@ -150,19 +177,28 @@ def install_ssm_agent_sles(remote_host, sudo_user):
 def install_ssm_agent_rhel(remote_host, sudo_user):
     # get AWS region from Manage_from instance
     aws_region = get_region()
-    command = "sudo yum install -y https://s3.%s.amazonaws.com/amazon-ssm-%s/latest/linux_amd64/amazon-ssm-agent.rpm" % (aws_region, aws_region)
     ssh_client = paramiko.SSHClient()
     ssh_client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
     ssh_client.connect(hostname=remote_host,username=sudo_user,key_filename=mfrom_priv_key_file)
     print('Connected to remote_host: %s' % remote_host)
+    command = "systemctl is-active amazon-ssm-agent"
     stdin,stdout,stderr = ssh_client.exec_command(command)
-    if (stdout.channel.recv_exit_status() == 0):
-        print('SSM Agent is installed')
-        command = "sudo systemctl enable amazon-ssm-agent"
+    if (stdout.channel.recv_exit_status() != 0):
+        command = "sudo yum install -y https://s3.%s.amazonaws.com/amazon-ssm-%s/latest/linux_amd64/amazon-ssm-agent.rpm" % (aws_region, aws_region)
         stdin,stdout,stderr = ssh_client.exec_command(command)
-    else:
-        print('SSM Agent installation failed !')
-        print(stderr.readlines())
+        if (stdout.channel.recv_exit_status() == 0):
+            print('SSM Agent is installed')
+            command = "sudo systemctl enable amazon-ssm-agent"
+            stdin,stdout,stderr = ssh_client.exec_command(command)
+            if (stdout.channel.recv_exit_status() == 0):
+                print('SSM Agent is enabled')
+                command = "sudo systemctl start amazon-ssm-agent"
+                stdin,stdout,stderr = ssh_client.exec_command(command)
+                if (stdout.channel.recv_exit_status() == 0):
+                    print('SSM Agent is started')
+        else:
+            print('SSM Agent installation failed !')
+            print(stderr.readlines())
 
 def get_region():
     get_response = requests.get(url='http://169.254.169.254/latest/meta-data/placement/region')

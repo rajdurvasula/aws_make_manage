@@ -8,6 +8,7 @@ Parameters:
     AllowedValues:
       - rhel
       - sles
+      - ubuntu
   KeyPairParam:
     Type: AWS::EC2::KeyPair::KeyName
     Description: Select KeyPair
@@ -33,7 +34,13 @@ Mappings:
   suse12:
     'ap-northeast-1':
       amiId: 'ami-04882bf72ff913721'
+  ubuntu18:
+    'ap-northeast-1':
+      amiId: 'ami-085e9421f80dbe728'
 Conditions:
+  LaunchUbuntu: !Equals
+    - !Ref OSType
+    - ubuntu
   LaunchSuse: !Equals
     - !Ref OSType
     - sles
@@ -142,3 +149,28 @@ Resources:
         Fn::Base64: !Sub |
           sudo zypper ref
           sudo zypper update -y
+  UbuntuInstance:
+    Type: AWS::EC2::Instance
+    Condition: LaunchUbuntu
+    Properties:
+      ImageId: !FindInMap [ ubuntu18, !Ref 'AWS::Region', amiId ]
+      InstanceType: t2.micro
+      IamInstanceProfile: !Ref MtoInstanceProfile
+      KeyName: !Ref KeyPairParam
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: true
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref SgParam
+          SubnetId: !Ref SubnetParam
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ubuntu-ep1'
+        - Key: Owner
+          Value: Rajasekhar.durvasula
+        - Key: Project
+          Value: MSP
+      UserData:
+        Fn::Base64: !Sub |
+          apt update
+          apt upgrade -y
