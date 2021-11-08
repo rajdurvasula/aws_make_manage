@@ -22,5 +22,3 @@ sudo ./aws/install
 echo "PATH=\$PATH:/usr/local/bin" >> /etc/bashrc
 echo "export PATH" >> /etc/bashrc
 source /etc/bashrc
-# download manage_from scripts
-git clone https://67f0072c650f0c4bed2d5efbd0f4fc1c0efca8d9:x-oauth-basic@github.kyndryl.net/rdurvas1/aws_make_manage.git
