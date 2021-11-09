@@ -1,0 +1,13 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Setup Manage from SSM documents
+Parameters:
+  ADUser:
+    Type: String
+    Description: AD Domain User
+    Default: 'rddeladmin@mspad.net'
+  ADUserSecret:
+    Type: String
+    Description: AD Domain User Secret
+    Default: 'rd/aduser/password'
+Resources:
+  JoinRHELToDomain:

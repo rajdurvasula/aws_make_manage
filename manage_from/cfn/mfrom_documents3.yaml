@@ -96,7 +96,6 @@ Resources:
             inputs:
               runcommand:
                 - "#!/bin/bash -xe"
-                - "mkdir -p /tmp/mfrom"
                 - "git clone https://{{ gitUser }}:{{ gitToken }}@{{ gitDomain }}/{{ gitUser }}/{{ gitRepo }} /tmp/mfrom"
                 - "cd /tmp/mfrom"
                 - "/usr/bin/python3 manage_from/scripts/makemanage_linux.py {{ sshPrivKey }} {{ sshPubKey }} {{ remoteHost }} {{ sudoUser }} {{ sudoUserKey }} {{ remoteUser }} sudoer"
