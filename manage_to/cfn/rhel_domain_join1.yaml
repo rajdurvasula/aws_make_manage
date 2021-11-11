@@ -1,0 +1,243 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Setup Manage from SSM documents
+Parameters:
+  ADDomain:
+    Type: String
+    Description: AD Domain
+    Default: 'mspad.net'
+  ADUser:
+    Type: String
+    Description: AD Domain User
+    Default: 'rddeladmin@mspad.net'
+  ADUserSecret:
+    Type: String
+    Description: AD Domain User Secret
+    Default: 'rd/aduser/password'
+  DomainIP:
+    Type: String
+    Description: Domain Server IP
+Resources:
+  SSMAutoRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "ssm.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: '/'
+      ManagedPolicyArns:
+        - "arn:aws:iam::aws:policy/AmazonEC2FullAccess"
+        - "arn:aws:iam::aws:policy/SecretsManagerReadWrite"
+        - "arn:aws:iam::aws:policy/service-role/AmazonSSMAutomationRole"
+  DomainJoinRHELDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Name: !Sub '${AWS::StackName}-DomainJoinRHEL'
+      Content:
+        schemaVersion: '2.2'
+        description: 'Command Document to Domain Join RHEL Instance'
+        parameters:
+          Domain:
+            type: String
+            description: "Domain Name"
+            default: !Ref ADDomain
+          DomainUser:
+            type: String
+            description: "Domain User Name"
+            default: !Ref ADUser
+          DomainUserSecret:
+            type: String
+            description: "Domain User Secret"
+            default: !Ref ADUserSecret
+        mainSteps:
+          - action: "aws:runShellScript"
+            name: "join_realm"
+            inputs:
+              runCommand:
+                - "#!/bin/bash -xe"
+                - "yum -y install expect"
+                - "echo \"realm join {{Domain}} -U {{DomainUser}}\" > /tmp/domain_join.sh"
+                - "chmod +x /tmp/domain_join.sh"
+                - "cat <<EOT >>/tmp/launch_domain_join.sh"
+                - "#!/bin/expect -f"
+                - "spawn /tmp/domain_join.sh"
+                - "expect \"Password for {{DomainUser}}: \""
+                - "send -- \"{{DomainUserSecret}}\""
+                - "send -- \"\\r\""
+                - "expect eof"
+                - "EOT"
+                - "chmod +x /tmp/launch_domain_join.sh"
+          - action: "aws:runShellScript"
+            name: "add_sudoer"
+            precondition:
+              StringEquals:
+                - platformType
+                - Linux
+            inputs:
+              runCommand:
+                - "#!/bin/bash -xe"
+                - "touch /etc/sudoers.d/ad-users"
+                - "echo \"{{DomainUser}} ALL=(ALL) NOPASSWD:ALL\" > /etc/sudoers.d/ad-users"
+          - action: "aws:runShellScript"
+            name: "run_join_realm"
+            inputs:
+              runCommand:
+                - "#!/bin/bash -xe"
+                - "/tmp/launch_domain_join.sh"
+          - action: "aws:runShellScript"
+            name: "delete_files"
+            inputs:
+              runCommand:
+                - "#!/bin/bash -xe"
+                - "rm -f /tmp/launch_domain_join.sh"
+  DomainJoinPrereqsDocument:
+    Type: AWS::SSM::Document
+    Properties:
+      DocumentType: Command
+      Name: !Sub '${AWS::StackName}-DomainJoinPrereqs'
+      Content:
+        schemaVersion: '2.2'
+        description: 'Command Document to Install Domain Join pre-reqs'
+        parameters:
+          DNSIP:
+            type: "String"
+            description: "DNS IP address"
+            default: !Ref DomainIP
+        mainSteps:
+          - action: "aws:runShellScript"
+            name: "setup_pkgs"
+            precondition:
+              StringEquals:
+                - platformType
+                - Linux
+            inputs:
+              runCommand:
+                - "#!/bin/bash -xe"
+                - "OS_ID=$(cat /etc/os-release | grep '^ID=' | cut -d'=' -f2 | sed -r 's#\"##g')"
+                - "if [ \"$OS_ID\" == \"rhel\" ]; then"
+                - "  yum -y update"
+                - "  yum -y install sssd realmd krb5-workstation samba-common-tools unzip"
+                - "  touch /etc/dhcp/dhclient.conf"
+                - "  echo \"supersede domain-name-servers {{DNSIP}};\" >> /etc/dhcp/dhclient.conf"
+                - "  echo \"PEERDNS=yes\" >> /etc/sysconfig/network-scripts/ifcfg-eth0"
+                - "fi"
+          - action: "aws:runShellScript"
+            name: "update_ssh_config"
+            precondition:
+              StringEquals:
+                - platformType
+                - Linux
+            inputs:
+              runCommand:
+                - "#!/bin/bash -xe"
+                - "OS_ID=$(cat /etc/os-release | grep '^ID=' | cut -d'=' -f2 | sed -r 's#\"##g')"
+                - "if [ \"$OS_ID\" == \"rhel\" ]; then"
+                - "  sed -i -e \"s~PasswordAuthentication no~PasswordAuthentication yes~g\" /etc/ssh/sshd_config"
+                - "fi"
+          - action: "aws:runShellScript"
+            name: "install_aws_cli_v2"
+            precondition:
+              StringEquals:
+                - platformType
+                - Linux
+            inputs:
+              runCommand:
+                - "#!/bin/bash -xe"
+                - "OS_ID=$(cat /etc/os-release | grep '^ID=' | cut -d'=' -f2 | sed -r 's#\"##g')"
+                - "if [ \"$OS_ID\" == \"rhel\" ]; then"
+                - "  curl \"https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip\" -o \"awscliv2.zip\""
+                - "  unzip awscliv2.zip"
+                - "  sudo ./aws/install"
+                - "fi"
+  JoinRHELToDomainDocument:
+    Type: AWS::SSM::Document
+    DependsOn:
+      - SSMAutoRole
+      - DomainJoinRHELDocument
+      - DomainJoinPrereqsDocument
+    Properties:
+      DocumentType: Automation
+      Name: !Sub '${AWS::StackName}-JoinRHELToDomain'
+      Content:
+        schemaVersion: '0.3'
+        description: 'Automation Document to Setup Domain Join'
+        assumeRole: !GetAtt [ SSMAutoRole, Arn ]
+        parameters:
+          ADUser:
+            type: String
+            default: !Ref ADUser
+            description: AD Domain User
+          ADUserPwd:
+            type: String
+            default: !Ref ADUserSecret
+            description: AD Domain User Password
+          ADDomain:
+            type: String
+            default: !Ref ADDomain
+            description: AD Domain Name
+          DNSIP:
+            type: String
+            description: DNS server address
+          InstanceId:
+            type: 'AWS::EC2::Instance::Id'
+            description: EC2 Instance
+        mainSteps:
+          - name: SetupPrereqs
+            action: 'aws:runCommand'
+            description: Setup Prereqs
+            inputs:
+              DocumentName: !Ref DomainJoinPrereqsDocument
+              InstanceIds:
+                - '{{InstanceId}}'
+              Parameters:
+                DNSIP: '{{ DNSIP }}'
+          - name: RebootInstance
+            action: 'aws:executeAwsApi'
+            description: Reboot Instance
+            inputs:
+              Service: ec2
+              Api: RebootInstances
+              InstanceIds:
+                - '{{InstanceId}}'              
+          - name: Sleep5Min
+            action: 'aws:sleep'
+            description: Sleep for 5 Min
+            inputs:
+              Duration: PT5M
+          - name: WaitForInstanceRunning
+            action: 'aws:changeInstanceState'
+            description: Assert Instance is Running
+            timeoutSeconds: 600
+            inputs:
+              InstanceIds:
+                - '{{InstanceId}}'
+              DesiredState: running
+              CheckStateOnly: true
+          - name: GetADPassword
+            action: 'aws:executeAwsApi'
+            description: Get AD User Password
+            inputs:
+              Service: secretsmanager
+              Api: GetSecretValue
+              SecretId: '{{ADUserPwd}}'
+            outputs:
+              - Name: ADSecret
+                Selector: $.SecretString
+                Type: String
+          - name: DomainJoinRHEL
+            action: 'aws:runCommand'
+            description: Run DomainJoinRHEL Command
+            inputs:
+              DocumentName: !Ref DomainJoinRHELDocument
+              InstanceIds:
+                - '{{InstanceId}}'
+              Parameters:
+                Domain: '{{ADDomain}}'
+                DomainUser: '{{ADUser}}'
+                DomainUserSecret: '{{GetADPassword.ADSecret}}'

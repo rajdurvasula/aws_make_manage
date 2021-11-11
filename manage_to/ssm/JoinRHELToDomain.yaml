@@ -1,0 +1,89 @@
+description: |-
+  *Replace this default text with instructions or other information about your document.*  
+
+  ---
+  # What is Markdown?
+  Markdown is a lightweight markup language that converts your content with plain text formatting to structurally valid rich text.
+  ## You can add headings
+  You can add *italics* or make the font **bold**.  
+  1. Create numbered lists 
+  * Add bullet points 
+  >Indent `code samples` 
+
+  You can create a [link to another webpage](https://aws.amazon.com/).
+schemaVersion: '0.3'
+assumeRole: 'arn:aws:iam::802878444238:role/RD_SSM_Auto'
+parameters:
+  ADUser:
+    type: String
+    default: rddeladmin@mspad.net
+    description: AD Domain User
+  ADUserPwd:
+    type: String
+    default: rd/aduser/password
+    description: AD Domain User Password
+  DNSIP:
+    type: String
+    description: DNS server address
+  InstanceId:
+    type: 'AWS::EC2::Instance::Id'
+    description: EC2 Instance
+  ADDomain:
+    type: String
+    default: mspad.net
+    description: AD Domain Name
+mainSteps:
+  - name: SetupPrereqs
+    action: 'aws:runCommand'
+    inputs:
+      DocumentName: DomainJoinPrereqs
+      InstanceIds:
+        - '{{InstanceId}}'
+      Parameters:
+        DNSIP: '{{ DNSIP }}'
+    description: Setup Prereqs
+  - name: RebootInstance
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: ec2
+      Api: RebootInstances
+      InstanceIds:
+        - '{{InstanceId}}'
+    description: Reboot Instance
+  - name: Sleep5Min
+    action: 'aws:sleep'
+    inputs:
+      Duration: PT5M
+    description: Sleep for 5 Min
+  - name: WaitForInstanceRunning
+    action: 'aws:changeInstanceState'
+    inputs:
+      InstanceIds:
+        - '{{InstanceId}}'
+      DesiredState: running
+      CheckStateOnly: true
+    description: Assert Instance is Running
+    timeoutSeconds: 600
+  - name: GetADPassword
+    action: 'aws:executeAwsApi'
+    inputs:
+      Service: secretsmanager
+      Api: GetSecretValue
+      SecretId: '{{ADUserPwd}}'
+    outputs:
+      - Name: ADSecret
+        Selector: $.SecretString
+        Type: String
+    description: Get AD User Password
+  - name: DomainJoinRHEL
+    action: 'aws:runCommand'
+    inputs:
+      DocumentName: DomainJoinRHEL
+      InstanceIds:
+        - '{{InstanceId}}'
+      Parameters:
+        Domain: '{{ADDomain}}'
+        DomainUser: '{{ADUser}}'
+        DomainUserSecret: '{{GetADPassword.ADSecret}}'
+    description: Run DomainJoinRHEL Command
+

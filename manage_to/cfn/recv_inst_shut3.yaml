@@ -1,0 +1,80 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Setup Event Rule to receive Instance shutdown event
+Parameters:
+  instanceId:
+    Type: String
+    Description: Instance Id
+  commandName:
+    Type: String
+    Description: SSM Command Document Name
+  domain:
+    Type: String
+    Description: Domain Name
+  domainUser:
+    Type: String
+    Description: Domain User
+  domainUserSecret:
+    Type: String
+    Description: Domain User Secret
+    Default: 'rd/aduser/password'
+Resources:
+  InstShutEventRuleTargetRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - "events.amazonaws.com"
+            Action:
+              - "sts:AssumeRole"
+      Path: "/"
+      Policies:
+        - PolicyName: !Sub '${AWS::StackName}_EventRuleTarget_Role'
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - "ssm:SendCommand"
+                Resource:
+                  - !Sub 'arn:aws:ec2:${AWS::Region}:${AWS::AccountId}:instance/${instanceId}'
+                  - !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:document/${commandName}'
+        - PolicyName: !Sub '${AWS::StackName}_S3_Min'
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 's3:PutObject'
+                Resource:
+                  - 'arn:aws:s3:::rd-kyndryl-bucket1/*'
+  InstShutEventRule:
+    Type: AWS::Events::Rule
+    Properties:
+      Description: 'Receive Instance Shutdown Event'
+      Name: !Sub 'RecvInstStopped_${instanceId}'
+      EventPattern:
+        source:
+          - aws.ec2
+        detail-type:
+          - 'EC2 Instance State-change Notification'
+        detail:
+          state:
+            - stopped
+          instance-id:
+            - !Ref instanceId
+      State: ENABLED
+      Targets:
+        - Arn: !Sub 'arn:aws:ssm:${AWS::Region}:${AWS::AccountId}:document/${commandName}'
+          Id: !Sub '${commandName}_${instanceId}'
+          RoleArn: !GetAtt [ InstShutEventRuleTargetRole, Arn ]
+          Input: '{ "Domain": "${domain}", "DomainUser": "${domainUser}", "DomainUserSecret": "${domainUserSecret}" }'
+          RunCommandParameters:
+            RunCommandTargets:
+              - Key: InstanceIds
+                Values:
+                  - ${instanceId}
+

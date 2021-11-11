@@ -1,0 +1,54 @@
+---
+schemaVersion: "2.2"
+description: "Install Domain Join pre-reqs"
+parameters:
+  DNSIP:
+    type: "String"
+    description: "DNS IP address"
+mainSteps:
+- action: "aws:runShellScript"
+  name: "setup_pkgs"
+  precondition:
+    StringEquals:
+      - platformType
+      - Linux
+  inputs:
+    runCommand:
+    - "#!/bin/bash -xe"
+    - "OS_ID=$(cat /etc/os-release | grep '^ID=' | cut -d'=' -f2 | sed -r 's#\"##g')"
+    - "if [ \"$OS_ID\" == \"rhel\" ]; then"
+    - "  yum -y update"
+    - "  yum -y install sssd realmd krb5-workstation samba-common-tools unzip"
+    - "  touch /etc/dhcp/dhclient.conf"
+    - "  echo \"supersede domain-name-servers {{DNSIP}};\" >> /etc/dhcp/dhclient.conf"
+    - "  echo \"PEERDNS=yes\" >> /etc/sysconfig/network-scripts/ifcfg-eth0"
+    - "fi"
+- action: "aws:runShellScript"
+  name: "update_ssh_config"
+  precondition:
+    StringEquals:
+      - platformType
+      - Linux
+  inputs:
+    runCommand:
+    - "#!/bin/bash -xe"
+    - "OS_ID=$(cat /etc/os-release | grep '^ID=' | cut -d'=' -f2 | sed -r 's#\"##g')"
+    - "if [ \"$OS_ID\" == \"rhel\" ]; then"
+    - "  sed -i -e \"s~PasswordAuthentication no~PasswordAuthentication yes~g\" /etc/ssh/sshd_config"
+    - "fi"
+- action: "aws:runShellScript"
+  name: "install_aws_cli_v2"
+  precondition:
+    StringEquals:
+      - platformType
+      - Linux
+  inputs:
+    runCommand:
+    - "#!/bin/bash -xe"
+    - "OS_ID=$(cat /etc/os-release | grep '^ID=' | cut -d'=' -f2 | sed -r 's#\"##g')"
+    - "if [ \"$OS_ID\" == \"rhel\" ]; then"
+    - "  curl \"https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip\" -o \"awscliv2.zip\""
+    - "  unzip awscliv2.zip"
+    - "  sudo ./aws/install"
+    - "fi"
+

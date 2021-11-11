@@ -1,0 +1,54 @@
+---
+schemaVersion: "2.2"
+description: "Command Document to Domain Join Linux Instance"
+parameters:
+  Domain:
+    type: "String"
+    description: "Domain Name"
+  DomainUser:
+    type: "String"
+    description: "Domain User"
+  DomainUserSecret:
+    type: "String"
+    description: "Domain User Secret"
+mainSteps:
+- action: "aws:runShellScript"
+  name: "join_realm"
+  inputs:
+    runCommand:
+    - "#!/bin/bash -xe"
+    - "yum -y install expect"
+    - "echo \"realm join {{Domain}} -U {{DomainUser}}\" > /tmp/domain_join.sh"
+    - "chmod +x /tmp/domain_join.sh"
+    - "cat <<EOT >>/tmp/launch_domain_join.sh"
+    - "#!/bin/expect -f"
+    - "spawn /tmp/domain_join.sh"
+    - "expect \"Password for {{DomainUser}}: \""
+    - "send -- \"{{DomainUserSecret}}\""
+    - "send -- \"\\r\""
+    - "expect eof"
+    - "EOT"
+    - "chmod +x /tmp/launch_domain_join.sh"
+- action: "aws:runShellScript"
+  name: "add_sudoer"
+  precondition:
+    StringEquals:
+      - platformType
+      - Linux
+  inputs:
+    runCommand:
+    - "#!/bin/bash -xe"
+    - "touch /etc/sudoers.d/ad-users"
+    - "echo \"{{DomainUser}} ALL=(ALL) NOPASSWD:ALL\" > /etc/sudoers.d/ad-users"    
+- action: "aws:runShellScript"
+  name: "run_join_realm"
+  inputs:
+    runCommand:
+    - "#!/bin/bash -xe"
+    - "/tmp/launch_domain_join.sh"
+- action: "aws:runShellScript"
+  name: "delete_files"
+  inputs:
+    runCommand:
+    - "#!/bin/bash -xe"
+    - "rm -f /tmp/launch_domain_join.sh"
