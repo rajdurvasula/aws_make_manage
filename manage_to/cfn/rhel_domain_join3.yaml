@@ -8,7 +8,7 @@ Parameters:
   ADUser:
     Type: String
     Description: AD Domain User
-    Default: 'rddeladmin@mspad.net'
+    Default: 'rddeladmin'
   ADUserSecret:
     Type: String
     Description: AD Domain User Secret
@@ -61,18 +61,105 @@ Resources:
             inputs:
               runCommand:
                 - "#!/bin/bash -xe"
-                - "yum -y install expect"
-                - "echo \"realm join {{Domain}} -U {{DomainUser}}\" > /tmp/domain_join.sh"
+                - "OS_ID=$(cat /etc/os-release | grep '^ID=' | cut -d'=' -f2 | sed -r 's#\"##g')"
+                - "if [ \"$OS_ID\" == \"rhel\" ]; then"
+                - "echo \"realm join {{Domain}} -U {{DomainUser}}@{{Domain}}\" > /tmp/domain_join.sh"
                 - "chmod +x /tmp/domain_join.sh"
                 - "cat <<EOT >>/tmp/launch_domain_join.sh"
                 - "#!/bin/expect -f"
                 - "spawn /tmp/domain_join.sh"
-                - "expect \"Password for {{DomainUser}}: \""
+                - "expect \"Password for {{DomainUser}}@{{Domain}}: \""
                 - "send -- \"{{DomainUserSecret}}\""
                 - "send -- \"\\r\""
                 - "expect eof"
                 - "EOT"
                 - "chmod +x /tmp/launch_domain_join.sh"
+                - "elif [ \"$OS_ID\" == \"sles\" ]; then"
+                - "realm_name=\"{{Domain}}\""
+                - "workgroup=$(echo ${realm_name^^} | cut -d'.' -f1)"
+                - "dc1=$(echo ${realm_name} | cut -d'.' -f1')"
+                - "dc2=$(echo ${realm_name} | cut -d'.' -f2')"
+                - "mv /etc/krb5.conf /etc/krb5.conf.$(date '+%Y%m%d%H%M%S')"
+                - "cat <<EOT >> /etc/krb5.conf"
+                - "[libdefaults]"
+                - "  dns_canonicalize_hostname = false"
+                - "  rdns = false"
+                - "  default_realm = ${realm_name^^}"
+                - "  dns_lookup_realm = false"
+                - "  forwardable = true"
+                - "  default_ccache_name = FILE:/tmp/krb5cc_%{uid}"
+                - "[realms]"
+                - "  ${realm_name^^} = {"
+                - "    admin_server = {{Domain}}"
+                - "  }"
+                - "[logging]"
+                - "  kdc = FILE:/var/log/krb5/krb5kdc.log"
+                - "  admin_server = FILE:/var/log/krb5/kadmind.log"
+                - "  default = SYSLOG:NOTICE:DAEMON"
+                - "[domain_realm]"
+                - "  .{{Domain}} = ${realm_name^^}"
+                - "  {{Domain}} = ${realm_name^^}"
+                - "EOT"                
+                - "mv /etc/samba/smb.conf /etc/samba/smb.conf.$(date '+%Y%m%d%H%M%S')"
+                - "cat <<EOT >> /etc/samba/smb.conf"
+                - "[global]"
+                - "  workgroup = $workgroup"
+                - "  kerberos method = secrets and keytab"
+                - "  realm = ${realm_name^^}"
+                - "  security = ADS"
+                - "EOT"
+                - "mv /etc/sssd/sssd.conf /etc/sssd/sssd.conf.$(date '+%Y%m%d%H%M%S')"
+                - "cat <<EOT >> /etc/sssd/sssd.conf"
+                - "[sssd]"
+                - "  config_file_version = 2"
+                - "  services = nss,pam"
+                - "  domains = {{Domain}}"
+                - "[nss]"
+                - "  filter_groups = root"
+                - "  filter_users = root"
+                - "[pam]"
+                - "  reconnection_retries = 3"
+                - "[domain/{{Domain}}]"
+                - "  ad_domain = {{Domain}}"
+                - "  krb5_realm = ${realm_name^^}"
+                - "  cache_credentials = true"
+                - "  id_provider = ad"
+                - "  auth_provider = ad"
+                - "  krb5_store_password_if_offline = true"
+                - "  default_shell = /bin/bash"
+                - "  ldap_id_mapping = true"
+                - "  use_fully_qualified_names = true"
+                - "  fallback_homedir = /home/%u/%d"
+                - "EOT"
+                - "chmod  0600 /etc/sssd/sssd.conf"
+                - "mv /etc/openldap/ldap.conf /etc/openldap/ldap.conf.$(date '+%Y%m%d%H%M%S')"
+                - "cat <<EOT >> /etc/openldap/ldap.conf"
+                - "URI ldap://{{Domain}}"
+                - "BASE dc=${dc1},dc=${dc2}"
+                - "REFERRALS OFF"
+                - "EOT"
+                - "cp /etc/nsswitch.conf /etc/nsswitch.conf.$(date '+%Y%m%d%H%M%S')"
+                - "sed -i -e \"s~^passwd:.*~passwd: compat sss~g\" /etc/nsswitch.conf"
+                - "sed -i -e \"s~^group:.*~group:  compat sss~g\" /etc/nsswitch.conf"
+                - "systemctl enable sssd"
+                - "systemctl start sssd"
+                - "pam-config -a --sss"
+                - "pam-config -a --mkhomedir"
+                - "cat <<EOT >> /tmp/domain_join.sh"
+                - "#!/bin/bash"
+                - "kinit {{DomainUser}}"
+                - "EOT"
+                - "chmod +x /tmp/domain_join.sh"
+                - "cat <<EOT >> /tmp/launch_domain_join.sh"
+                - "#!/usr/bin/expect -f"
+                - "spawn /tmp/domain_join.sh"
+                - "expect \"Password for {{DomainUser}}@${realm_name^^}: \""
+                - "send -- \"{{DomainUserSecret}}\""
+                - "send -- \"\\r\""
+                - "expect eof"
+                - "EOT"
+                - "chmod +x /tmp/launch_domain_join.sh"
+                - "fi"
           - action: "aws:runShellScript"
             name: "add_sudoer"
             precondition:
@@ -82,8 +169,9 @@ Resources:
             inputs:
               runCommand:
                 - "#!/bin/bash -xe"
+                - "realm_name=\"{{Domain}}\""
                 - "touch /etc/sudoers.d/ad-users"
-                - "echo \"{{DomainUser}} ALL=(ALL) NOPASSWD:ALL\" > /etc/sudoers.d/ad-users"
+                - "echo \"{{DomainUser}}@${realm_name^^}  ALL=(ALL)  NOPASSWD:ALL\" > /etc/sudoers.d/ad-users"
           - action: "aws:runShellScript"
             name: "run_join_realm"
             inputs:
@@ -122,10 +210,15 @@ Resources:
                 - "OS_ID=$(cat /etc/os-release | grep '^ID=' | cut -d'=' -f2 | sed -r 's#\"##g')"
                 - "if [ \"$OS_ID\" == \"rhel\" ]; then"
                 - "  yum -y update"
-                - "  yum -y install sssd realmd krb5-workstation samba-common-tools unzip"
+                - "  yum -y install sssd realmd krb5-workstation samba-common-tools expect unzip"
                 - "  touch /etc/dhcp/dhclient.conf"
                 - "  echo \"supersede domain-name-servers {{DNSIP}};\" >> /etc/dhcp/dhclient.conf"
                 - "  echo \"PEERDNS=yes\" >> /etc/sysconfig/network-scripts/ifcfg-eth0"
+                - "elif [ \"$OS_ID\" == \"sles\" ]; then"
+                - "  zypper ref"
+                - "  zypper -n install krb5-client samba-client openldap2-client sssd sssd-tools sssd-ad expect unzip"
+                - "  cp /etc/sysconfig/network/config /etc/sysconfig/network/config.$(date '+%Y%m%d%H%M%S')"
+                - "  sed -i -e \"s~^NETCONFIG_DNS_STATIC_SERVERS=.*~NETCONFIG_DNS_STATIC_SERVERS=\\\"{{DNSIP}}\\\"~g\" /etc/sysconfig/network/config"
                 - "fi"
           - action: "aws:runShellScript"
             name: "update_ssh_config"
@@ -138,6 +231,8 @@ Resources:
                 - "#!/bin/bash -xe"
                 - "OS_ID=$(cat /etc/os-release | grep '^ID=' | cut -d'=' -f2 | sed -r 's#\"##g')"
                 - "if [ \"$OS_ID\" == \"rhel\" ]; then"
+                - "  sed -i -e \"s~PasswordAuthentication no~PasswordAuthentication yes~g\" /etc/ssh/sshd_config"
+                - "elif [ \"$OS_ID\" == \"sles\" ]; then"
                 - "  sed -i -e \"s~PasswordAuthentication no~PasswordAuthentication yes~g\" /etc/ssh/sshd_config"
                 - "fi"
           - action: "aws:runShellScript"
@@ -204,7 +299,7 @@ Resources:
               Service: ec2
               Api: RebootInstances
               InstanceIds:
-                - '{{InstanceId}}'              
+                - '{{InstanceId}}'            
           - name: Sleep5Min
             action: 'aws:sleep'
             description: Sleep for 5 Min
@@ -241,3 +336,16 @@ Resources:
                 Domain: '{{ADDomain}}'
                 DomainUser: '{{ADUser}}'
                 DomainUserSecret: '{{GetADPassword.ADSecret}}'
+          - name: AllowServices5Min
+            action: 'aws:sleep'
+            description: Sleep for 5 Min
+            inputs:
+              Duration: PT5M
+          - name: PostConfigReboot
+            action: 'aws:executeAwsApi'
+            description: Reboot Instance
+            inputs:
+              Service: ec2
+              Api: RebootInstances
+              InstanceIds:
+                - '{{InstanceId}}'              
