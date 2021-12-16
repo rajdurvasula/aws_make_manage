@@ -1,0 +1,296 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Launch a VPC
+Parameters:
+  vpccidr:
+    Type: String
+    Description: VPC CIDR
+    Default: "11.0.0.0/16"
+  pubsubnet1:
+    Type: String
+    Description: public subnet1
+    Default: 'pub-subnet1'
+  pubsubnet2:
+    Type: String
+    Description: public subnet2
+    Default: 'pub-subnet2'
+  privsubnet1:
+    Type: String
+    Description: private subnet1
+    Default: 'priv-subnet1'
+  privsubnet2:
+    Type: String
+    Description: private subnet2
+    Default: 'priv-subnet2'
+  yourip:
+    Type: String
+    Description: your ip address cidr
+    Default: '122.171.20.153/32'
+Resources:
+  myvpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref vpccidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-vpc'
+        - Key: Owner
+          Value: 'Rajasekhar.durvasula'
+  pubsub1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: '11.0.0.0/24'
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref myvpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-pubsubnet1'
+        - Key: Owner
+          Value: 'Rajasekhar.durvasula'
+  pubsub2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: '11.0.1.0/24'
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      MapPublicIpOnLaunch: true
+      VpcId: !Ref myvpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-pubsubnet2'
+        - Key: Owner
+          Value: 'Rajasekhar.durvasula'
+  privsub1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: '11.0.2.0/24'
+      AvailabilityZone:
+        Fn::Select:
+          - 0
+          - Fn::GetAZs: ""
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref myvpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-privsubnet1'
+        - Key: Owner
+          Value: 'Rajasekhar.durvasula'
+  privsub2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      CidrBlock: '11.0.3.0/24'
+      AvailabilityZone:
+        Fn::Select:
+          - 1
+          - Fn::GetAZs: ""
+      MapPublicIpOnLaunch: false
+      VpcId: !Ref myvpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-privsubnet2'
+        - Key: Owner
+          Value: 'Rajasekhar.durvasula'
+  myigw:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-igw'
+  myigwattach:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref myvpc
+      InternetGatewayId: !Ref myigw
+  nateip:
+    Type: AWS::EC2::EIP
+    DependsOn: myigwattach
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-eip'
+        - Key: Owner
+          Value: 'Rajasekhar.durvasula'
+  natgw:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      AllocationId: !GetAtt [ nateip, AllocationId ]
+      SubnetId: !Ref pubsub1
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-ngw'
+        - Key: Owner
+          Value: 'Rajasekhar.durvasula'
+  secrt:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref myvpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-secrt'
+        - Key: Owner
+          Value: 'Rajasekhar.durvasula'
+  privroute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !Ref secrt
+      DestinationCidrBlock: '0.0.0.0/0'
+      NatGatewayId: !Ref natgw
+  privsub1assoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref privsub1
+      RouteTableId: !Ref secrt
+  privsub2assoc:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref privsub2
+      RouteTableId: !Ref secrt
+  sglb:
+    Type: AWS::EC2::SecurityGroup
+    DependsOn: myigw
+    Properties:
+      GroupDescription: 'lb security group'
+      VpcId: !Ref myvpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          CidrIp: !Ref yourip
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: !Ref yourip
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-lb-sg'
+        - Key: Owner
+          Value: 'Rajasekhar.durvasula'
+  privsg:
+    Type: AWS::EC2::SecurityGroup
+    DependsOn: natgw
+    Properties:
+      GroupDescription: 'priv security group'
+      VpcId: !Ref myvpc
+      SecurityGroupIngress:
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: '11.0.0.0/24'
+        - IpProtocol: tcp
+          FromPort: 3306
+          ToPort: 3306
+          CidrIp: '11.0.1.0/24'
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: '11.0.0.0/24'
+        - IpProtocol: tcp
+          FromPort: 22
+          ToPort: 22
+          CidrIp: '11.0.1.0/24'
+        - IpProtocol: tcp
+          FromPort: 9080
+          ToPort: 9080
+          CidrIp: '11.0.0.0/24'
+        - IpProtocol: tcp
+          FromPort: 9080
+          ToPort: 9080
+          CidrIp: '11.0.1.0/24'
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-priv-sg'
+        - Key: Owner
+          Value: 'Rajasekhar.durvasula'
+  GetMainRTRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${AWS::StackName}-GetMainRTRole'
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - lambda.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: /
+      Policies:
+        - PolicyName: !Sub '${AWS::StackName}-Desc-EC2'
+          PolicyDocument:
+            Version: '2012-10-17'
+            Statement:
+              - Effect: Allow
+                Action:
+                  - 'ec2:Describe*'
+                Resource: '*'
+              - Effect: Allow
+                Action:
+                  - 'logs:CreateLogGroup'
+                  - 'logs:CreateLogStream'
+                  - 'logs:PutLogEvents'
+                Resource:
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*'
+                  - !Sub 'arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:*:log-stream:*'
+  GetMainRTLambda:
+    Type: AWS::Lambda::Function
+    DependsOn: myigw
+    Properties:
+      FunctionName: !Sub '${AWS::StackName}-GetMainRT'
+      Runtime: python3.8
+      Role: !GetAtt GetMainRTRole.Arn
+      Handler: index.lambda_handler
+      Code:
+        ZipFile: |
+          import boto3
+          import json
+          import cfnresponse
+
+          ec2 = boto3.client('ec2')
+          responseData = {}
+
+          def lambda_handler(event, context):
+            if event['RequestType'] == 'Delete':
+              send_default_response(event, context)
+            elif event['RequestType'] == 'Update':
+              send_default_response(event, context)
+            elif event['RequestType'] == 'Create':
+              get_main_rt(event, context)
+          
+          def send_default_response(event, context):
+            cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+
+          def get_main_rt(event, context):
+            try:
+              vpcId = event['ResourceProperties']['vpc_id']
+              rt_filters = []
+              rt_filter1 = { 'Name': 'association.main', 'Values': [ 'true' ] }
+              rt_filter2 = { 'Name': 'vpc-id', 'Values': [ vpcId ] }
+              rt_filters = [ rt_filter1, rt_filter2 ]
+              response = ec2.describe_route_tables(Filters=rt_filters)
+              routeTableId = response['RouteTables'][0]['RouteTableId']
+              responseData = {'RouteTableId': routeTableId}
+              cfnresponse.send(event, context, cfnresponse.SUCCESS, responseData)
+            except:
+              cfnresponse.send(event, context, cfnresponse.FAILED, responseData)
+  GetMainRTLambdaCaller:
+    Type: 'Custom::GetMainRTResource'
+    Properties:
+      ServiceToken: !GetAtt GetMainRTLambda.Arn
+      vpc_id: !Ref myvpc
+  IgwRoute:
+    Type: AWS::EC2::Route
+    Properties:
+      RouteTableId: !GetAtt GetMainRTLambdaCaller.RouteTableId
+      DestinationCidrBlock: '0.0.0.0/0'
+      GatewayId: !Ref myigw
+
+
+

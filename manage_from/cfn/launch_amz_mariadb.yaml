@@ -1,0 +1,129 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Launch Amazon Linux 2 with MariaDB
+Parameters:
+  KeyPairParam:
+    Type: AWS::EC2::KeyPair::KeyName
+    Description: Select KeyPair
+    Default: kyndryl_rd_tok
+  VPCParam:
+    Type: AWS::EC2::VPC::Id
+    Description: Select VPC
+  SubnetParam:
+    Type: AWS::EC2::Subnet::Id
+    Description: Select Subnet
+  SgParam:
+    Type: AWS::EC2::SecurityGroup::Id
+    Description: Select Security Group
+Mappings:
+  amzlin2:
+    'ap-northeast-1':
+      amiId: ami-0218d08a1f9dac831
+Resources:
+  DBInstRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service:
+                - ec2.amazonaws.com
+            Action:
+              - sts:AssumeRole
+      Path: '/'
+      ManagedPolicyArns:
+        - arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - arn:aws:iam::aws:policy/AmazonS3ReadOnlyAccess
+      Policies:
+        - PolicyName: !Sub '${AWS::StackName}-S3-Read'
+          PolicyDocument:
+            Version: 2012-10-17
+            Statement:
+              - Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - 'arn:aws:s3:::rd-kyndryl-bucket1'
+                  - 'arn:aws:s3:::rd-kyndryl-bucket1/*'
+  DBInstProfile:
+    Type: AWS::IAM::InstanceProfile
+    DependsOn: DBInstRole
+    Properties:
+      InstanceProfileName: !Sub '${AWS::StackName}-InstanceProfile'
+      Roles:
+        - !Ref DBInstRole
+  DBInstance:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !FindInMap [ amzlin2, !Ref 'AWS::Region', amiId ]
+      InstanceType: t2.micro
+      IamInstanceProfile: !Ref DBInstProfile
+      KeyName: !Ref KeyPairParam
+      NetworkInterfaces:
+        - AssociatePublicIpAddress: false
+          DeviceIndex: 0
+          GroupSet:
+            - !Ref SgParam
+          SubnetId: !Ref SubnetParam
+      Tags:
+        - Key: Name
+          Value: !Sub '${AWS::StackName}-db'
+        - Key: Owner
+          Value: Rajasekhar.durvasula
+        - Key: Project
+          Value: MSP
+      UserData:
+        Fn::Base64: !Sub |
+          #!/bin/bash -x
+          amazon-linux-extras enable lamp-mariadb10.2-php7.2=latest
+          yum install mariadb mariadb-server -y
+          yum install jq expect -y
+          systemctl start mariadb
+          systemctl enable mariadb
+          region=$(curl http://169.254.169.254/latest/meta-data/placement/region)
+          root_password=$(aws ssm get-parameter --region $region --name '/rd/addrbook/db/root/password' | jq -r '.Parameter.Value')
+          cat <<EOT >> /tmp/secure_mysql.sh
+          #!/usr/bin/expect -f
+          spawn mysql_secure_installation
+          expect {Enter current password for root (enter for none): }
+          send -- "\r"
+          expect {Set root password? \[Y/n] }
+          send -- "Y\r"
+          expect {New password: }
+          send -- "ROOT_PASSWORD\r"
+          expect {Re-enter new password: }
+          send -- "ROOT_PASSWORD\r"
+          expect {Remove anonymous users? \[Y/n] }
+          send -- "Y\r"
+          expect {Disallow root login remotely? \[Y/n] }
+          send -- "Y\r"
+          expect {Remove test database and access to it? \[Y/n] }
+          send -- "Y\r"
+          expect {Reload privilege tables now? \[Y/n] }
+          send -- "Y\r"
+          expect eof
+          EOT
+          cat <<EOT >> /tmp/launch_secure_mysql.sh
+          sed -i -e "s~ROOT_PASSWORD~\$1~g" /tmp/secure_mysql.sh
+          /tmp/secure_mysql.sh
+          rm -f /tmp/secure_mysql.sh
+          EOT
+          chmod +x /tmp/launch_secure_mysql.sh /tmp/secure_mysql.sh
+          /tmp/launch_secure_mysql.sh $root_password
+          cat <<EOT >> /tmp/db_schema.sql
+          create database rdaddrbookdev;
+          create user 'addrbook'@'localhost' identified by 'rdaddrbook';
+          create user 'addrbook'@'%' identified by 'rdaddrbook';
+          grant all privileges on rdaddrbookdev.* to 'addrbook'@'localhost' identified by 'rdaddrbook';
+          grant all privileges on rdaddrbookdev.* to 'addrbook'@'%' identified by 'rdaddrbook';
+          EOT
+          mysql -u root --password=$root_password < /tmp/db_schema.sql
+Outputs:
+  MariaInstance:
+    Description: 'Maria DB Instance'
+    Value: !GetAtt [ DBInstance, PrivateIp ]
+
+
+
